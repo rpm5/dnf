@@ -17,6 +17,7 @@
 
 from __future__ import absolute_import
 from __future__ import unicode_literals
+from io import StringIO
 from tests import support
 from tests.support import mock
 
@@ -27,7 +28,7 @@ import tests.support
 
 
 def _run(cli, args):
-    with mock.patch('sys.stdout') as stdout, \
+    with mock.patch('sys.stdout', new_callable=StringIO) as stdout, \
          mock.patch('dnf.rpm.detect_releasever', return_value=69):
         cli.configure(['clean', '--config', '/dev/null'] + args)
         cli.run()
@@ -48,12 +49,12 @@ class CleanTest(tests.support.TestCase):
         walk = [
             (
                 repo.basecachedir,
-                [os.path.basename(repo.cachedir)],
+                [os.path.basename(repo._cachedir)],
                 [repo.id + '.solv'],
             ),
-            (repo.cachedir, ['repodata', 'packages'], ['metalink.xml']),
-            (repo.cachedir + '/repodata', [], ['foo.xml', 'bar.xml.bz2']),
-            (repo.cachedir + '/packages', [], ['foo.rpm']),
+            (repo._cachedir, ['repodata', 'packages'], ['metalink.xml']),
+            (repo._cachedir + '/repodata', [], ['foo.xml', 'bar.xml.bz2']),
+            (repo._cachedir + '/packages', [], ['foo.rpm']),
         ]
         os.walk = self.walk = mock.Mock(return_value=walk)
         self.base = base

@@ -43,7 +43,6 @@ class GroupCommand(commands.Command):
                        'groupinfo'    : 'info'}
     aliases = ('group', 'groups') + tuple(direct_commands.keys())
     summary = _('display, or use, the groups information')
-    usage = "[list|info|summary|install|upgrade|remove|mark] [%s]" % _('GROUP')
 
     _CMD_ALIASES = {'update'     : 'upgrade',
                     'erase'      : 'remove'}
@@ -55,7 +54,8 @@ class GroupCommand(commands.Command):
         direct = self.direct_commands.get(self.opts.command[0])
         if direct:
             # canonize subcmd and args
-            self.opts.args.insert(0, self.opts.subcmd)
+            if self.opts.subcmd is not None:
+                self.opts.args.insert(0, self.opts.subcmd)
             self.opts.subcmd = direct
         if self.opts.subcmd is None:
             self.opts.subcmd = 'summary'
@@ -105,7 +105,7 @@ class GroupCommand(commands.Command):
         return installed, available
 
     def _grp_setup(self):
-        self.base.read_comps()
+        self.base.read_comps(arch_filter=True)
 
     def _info(self, userlist):
         for strng in userlist:
@@ -358,7 +358,7 @@ class GroupCommand(commands.Command):
         else:
             demands.available_repos = True
 
-        commands.checkEnabledRepo(self.base)
+        commands._checkEnabledRepo(self.base)
 
         if cmd in ('install', 'remove', 'mark', 'info'):
             if not args:
@@ -366,7 +366,7 @@ class GroupCommand(commands.Command):
                 raise dnf.cli.CliError
 
         if cmd in ('install', 'upgrade'):
-            commands.checkGPGKey(self.base, self.cli)
+            commands._checkGPGKey(self.base, self.cli)
 
     def run(self):
         cmd = self.opts.subcmd
@@ -391,9 +391,9 @@ class GroupCommand(commands.Command):
         self.cli.demands.resolving = True
         if cmd == 'install':
             if self.opts.with_optional:
-                types = tuple(dnf.const.GROUP_PACKAGE_TYPES + ('optional',))
+                types = tuple(self.base.conf.group_package_types + ('optional',))
             else:
-                types = dnf.const.GROUP_PACKAGE_TYPES
+                types = self.base.conf.group_package_types
 
             self._remark = True
             try:

@@ -78,8 +78,8 @@ REASONS = {
     'tour'      : 'group',
     'trampoline': 'group',
 }
-RPMDB_CHECKSUM = '528a64b44871e11dcdc9e1fbcb00b4a6c9ae3421'
-TOTAL_RPMDB_COUNT = 8
+RPMDB_CHECKSUM = '47655615e9eae2d339443fa00065d41900f99baf'
+TOTAL_RPMDB_COUNT = 10
 SYSTEM_NSOLVABLES = TOTAL_RPMDB_COUNT
 MAIN_NSOLVABLES = 9
 UPDATES_NSOLVABLES = 4
@@ -143,7 +143,7 @@ def wiretap_logs(logger_name, level, stream):
 
 def command_configure(cmd, args):
     parser = dnf.cli.option_parser.OptionParser()
-    args = [cmd.basecmd] + args
+    args = [cmd._basecmd] + args
     parser.parse_main_args(args)
     parser.parse_command_args(cmd, args)
     return cmd.configure()
@@ -252,7 +252,7 @@ class _BaseStubMixin(object):
         logger.setLevel(logging.DEBUG)
         logger.addHandler(logging.StreamHandler(stream))
         return mock.Mock(base=self, log_stream=stream, logger=logger,
-                         nogpgcheck=True, demands=dnf.cli.demand.DemandSheet())
+                         demands=dnf.cli.demand.DemandSheet())
 
     def read_mock_comps(self, seed_persistor=True):
         self._comps, self._group_persistor = mock_comps(seed_persistor)
@@ -277,7 +277,6 @@ class BaseCliStub(_BaseStubMixin, dnf.cli.cli.BaseCli):
 
 class CliStub(object):
     """A class mocking `dnf.cli.Cli`."""
-    nogpgcheck = True
 
     def __init__(self, base):
         """Initialize the CLI."""
@@ -360,7 +359,7 @@ class MockPackage(object):
         return self._chksum
 
 class MockRepo(dnf.repo.Repo):
-    def valid(self):
+    def _valid(self):
         return None
 
 

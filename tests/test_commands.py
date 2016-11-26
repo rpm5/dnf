@@ -65,6 +65,16 @@ class CommandsCliTest(support.TestCase):
             ('Cannot undo transaction 1, doing so would result in an '
              'inconsistent package database.',))
 
+    @mock.patch('dnf.cli.commands._', dnf.pycomp.NullTranslations().ugettext)
+    def test_history_convert_tids(self):
+        """Test history _convert_tids()."""
+        cmd = dnf.cli.commands.HistoryCommand(self.cli)
+        cmd.cli.base.output = mock.MagicMock()
+        cmd.cli.base.output.history.last().tid = 123
+        cmd.cli.base.output.history.search = mock.MagicMock(return_value=[99])
+        support.command_configure(cmd, ['list', '1..5', 'last', 'last-10', 'kernel'])
+        self.assertEqual(cmd._convert_tids(), [1, 2, 3, 4, 5, 99, 113, 123])
+
 
 class CommandTest(support.TestCase):
     def test_canonical(self):
@@ -75,7 +85,7 @@ class CommandTest(support.TestCase):
         except dnf.exceptions.Error as e:
             if e.value != 'No packages marked for upgrade.':
                 raise
-        self.assertEqual(cmd.basecmd, 'upgrade')
+        self.assertEqual(cmd._basecmd, 'upgrade')
         self.assertEqual(cmd.opts.pkg_specs, ['cracker', 'filling'])
 
 
@@ -87,7 +97,7 @@ class InstallCommandTest(support.ResultTestCase):
         """Prepare the test fixture."""
         super(InstallCommandTest, self).setUp()
         base = support.BaseCliStub('main')
-        base.repos['main'].metadata = mock.Mock(comps_fn=support.COMPS_PATH)
+        base.repos['main'].metadata = mock.Mock(_comps_fn=support.COMPS_PATH)
         base.init_sack()
         self._cmd = dnf.cli.commands.install.InstallCommand(base.mock_cli())
 
@@ -478,7 +488,7 @@ class RepoPkgsInstallSubCommandTest(support.ResultTestCase):
         """Prepare the test fixture."""
         super(RepoPkgsInstallSubCommandTest, self).setUp()
         base = support.BaseCliStub('main', 'third_party')
-        base.repos['main'].metadata = mock.Mock(comps_fn=support.COMPS_PATH)
+        base.repos['main'].metadata = mock.Mock(_comps_fn=support.COMPS_PATH)
         base.repos['third_party'].enablegroups = False
         base.init_sack()
         self.cli = base.mock_cli()

@@ -23,6 +23,7 @@ from __future__ import unicode_literals
 from dnf.cli import commands
 from dnf.cli.option_parser import OptionParser
 from dnf.i18n import _
+from itertools import chain
 
 import dnf.exceptions
 import logging
@@ -35,7 +36,7 @@ class InstallCommand(commands.Command):
     install command.
     """
 
-    aliases = ('install',)
+    aliases = ('install', 'localinstall')
     summary = _('install a package or packages on your system')
 
     @staticmethod
@@ -54,11 +55,21 @@ class InstallCommand(commands.Command):
         demands.available_repos = True
         demands.resolving = True
         demands.root_user = True
-        commands.checkGPGKey(self.base, self.cli)
-        commands.checkEnabledRepo(self.base, self.opts.filenames)
+        commands._checkGPGKey(self.base, self.cli)
+        commands._checkEnabledRepo(self.base, self.opts.filenames)
 
     def run(self):
         strict = self.base.conf.strict
+
+        # localinstall valid arguments check
+        nonfilenames = self.opts.grp_specs or self.opts.pkg_specs
+        if self.opts.command == ['localinstall'] and nonfilenames:
+            group_names = map(lambda g: '@' + g, self.opts.grp_specs)
+            for pkg in chain(self.opts.pkg_specs, group_names):
+                msg = _('Not a valid rpm file path: %s')
+                logger.info(msg, self.base.output.term.bold(pkg))
+            if strict:
+                raise dnf.exceptions.Error(_('Nothing to do.'))
 
         # Install files.
         err_pkgs = []
@@ -71,11 +82,11 @@ class InstallCommand(commands.Command):
                 err_pkgs.append(pkg)
 
         # Install groups.
-        if self.opts.grp_specs:
-            self.base.read_comps()
+        if self.opts.grp_specs and self.opts.command != ['localinstall']:
+            self.base.read_comps(arch_filter=True)
             try:
                 self.base.env_group_install(self.opts.grp_specs,
-                                            dnf.const.GROUP_PACKAGE_TYPES,
+                                            self.base.conf.group_package_types,
                                             strict=strict)
             except dnf.exceptions.Error:
                 if self.base.conf.strict:
@@ -83,13 +94,15 @@ class InstallCommand(commands.Command):
 
         # Install packages.
         errs = []
-        for pkg_spec in self.opts.pkg_specs:
-            try:
-                self.base.install(pkg_spec, strict=strict)
-            except dnf.exceptions.MarkingError:
-                msg = _('No package %s available.')
-                logger.info(msg, self.base.output.term.bold(pkg_spec))
-                errs.append(pkg_spec)
+        if self.opts.command != ['localinstall']:
+            for pkg_spec in self.opts.pkg_specs:
+                try:
+                    self.base.install(pkg_spec, strict=strict)
+                except dnf.exceptions.MarkingError:
+                    msg = _('No package %s available.')
+                    logger.info(msg, self.base.output.term.bold(pkg_spec))
+                    errs.append(pkg_spec)
+
         if (len(errs) != 0 or len(err_pkgs) != 0) and self.base.conf.strict:
             raise dnf.exceptions.PackagesNotAvailableError(
                 _("Unable to find a match"), pkg_spec=' '.join(errs),

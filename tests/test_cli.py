@@ -90,33 +90,9 @@ class BaseCliTest(support.ResultTestCase):
             mock.call.info('Package %s available, but not installed.', 'lotus'),
             mock.call.info('No match for argument: %s', 'lotus')])
 
-    def test_transaction_id_or_offset_bad(self, _):
-        """Test transaction_id_or_offset with a bad input."""
-        self.assertRaises(ValueError,
-                          dnf.cli.cli.BaseCli.transaction_id_or_offset, 'bad')
-
-    def test_transaction_id_or_offset_last(self, _):
-        """Test transaction_id_or_offset with the zero offset."""
-        id_or_offset = dnf.cli.cli.BaseCli.transaction_id_or_offset('--last')
-        self.assertEqual(id_or_offset, -1)
-
-    def test_transaction_id_or_offset_negativeid(self, _):
-        """Test transaction_id_or_offset with a negative ID."""
-        self.assertRaises(ValueError,
-                          dnf.cli.cli.BaseCli.transaction_id_or_offset, '-1')
-
-    def test_transaction_id_or_offset_offset(self, _):
-        """Test transaction_id_or_offset with an offset."""
-        id_or_offset = dnf.cli.cli.BaseCli.transaction_id_or_offset('--last-1')
-        self.assertEqual(id_or_offset, -2)
-
-    def test_transaction_id_or_offset_positiveid(self, _):
-        """Test transaction_id_or_offset with a positive ID."""
-        id_or_offset = dnf.cli.cli.BaseCli.transaction_id_or_offset('1')
-        self.assertEqual(id_or_offset, 1)
 
 
-@mock.patch('dnf.cli.cli.Cli.read_conf_file')
+@mock.patch('dnf.cli.cli.Cli._read_conf_file')
 class CliTest(TestCase):
     def setUp(self):
         self.base = support.MockBase("main")
@@ -163,7 +139,7 @@ class CliTest(TestCase):
         self.assertTrue(self.base.repos['comb'].enabled)
         self.assertFalse(self.base.repos["comb"].gpgcheck)
         self.assertFalse(self.base.repos["comb"].repo_gpgcheck)
-        self.assertEqual(self.base.repos["comb"].sync_strategy,
+        self.assertEqual(self.base.repos["comb"]._sync_strategy,
                          dnf.repo.SYNC_ONLY_CACHE)
 
     def test_configure_repos_expired(self, _):
@@ -183,7 +159,7 @@ class CliTest(TestCase):
         self.cli.demands.fresh_metadata = False
         self.cli.demands.cacheonly = True
         self.cli._process_demands()
-        self.assertEqual(self.base.repos['one'].sync_strategy,
+        self.assertEqual(self.base.repos['one']._sync_strategy,
                          dnf.repo.SYNC_ONLY_CACHE)
 
 @mock.patch('dnf.logging.Logging._setup', new=mock.MagicMock)
@@ -246,7 +222,6 @@ class ConfigureTest(TestCase):
     @mock.patch('dnf.cli.cli.Cli._parse_commands', new=mock.MagicMock)
     def test_installroot_with_etc(self):
         """Test that conffile is detected in a new installroot."""
-        self.cli.base.basecmd = 'update'
         self.cli.base.extcmds = []
 
         tlv = support.dnf_toplevel()
@@ -255,7 +230,6 @@ class ConfigureTest(TestCase):
 
     def test_installroot_configurable(self):
         """Test that conffile is detected in a new installroot."""
-        self.cli.base.basecmd = 'update'
 
         conf = os.path.join(support.dnf_toplevel(), "tests/etc/installroot.conf")
         self.cli.configure(['-c', conf, '--nogpgcheck', '--releasever', '17', 'update'])

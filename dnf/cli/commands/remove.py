@@ -24,6 +24,7 @@ from dnf.cli import commands
 from dnf.i18n import _
 from dnf.cli.option_parser import OptionParser
 
+import argparse
 import dnf.exceptions
 import logging
 
@@ -35,15 +36,18 @@ class RemoveCommand(commands.Command):
 
     aliases = ('remove', 'erase')
     summary = _('remove a package or packages from your system')
-    usage = "%s..." % _('PACKAGE')
 
     @staticmethod
     def set_argparser(parser):
         mgroup = parser.add_mutually_exclusive_group()
-        mgroup.add_argument('--duplicated', action='store_true',
+        mgroup.add_argument('--duplicates', action='store_true',
+                            dest='duplicated',
                             help=_('remove duplicated packages'))
+        mgroup.add_argument('--duplicated', action='store_true',
+                            help=argparse.SUPPRESS)
         mgroup.add_argument('--oldinstallonly', action='store_true',
-                            help=_('remove installonly packages over the limit'))
+                            help=_(
+                                'remove installonly packages over the limit'))
         parser.add_argument('packages', nargs='*', help=_('Package to remove'),
                             action=OptionParser.ParseSpecGroupFileCallback,
                             metavar=_('PACKAGE'))
@@ -65,8 +69,7 @@ class RemoveCommand(commands.Command):
 
         if self.opts.duplicated:
             q = self.base.sack.query()
-            instonly = q.installed().filter(
-                provides__glob=self.base.conf.installonlypkgs)
+            instonly = self.base._get_installonly_query(q.installed())
             dups = q.duplicated().difference(instonly).latest(-1)
             if dups:
                 for pkg in dups:
@@ -77,8 +80,7 @@ class RemoveCommand(commands.Command):
             return
         if self.opts.oldinstallonly:
             q = self.base.sack.query()
-            instonly = q.installed().filter(
-                provides__glob=self.base.conf.installonlypkgs).latest(
+            instonly = self.base._get_installonly_query(q.installed()).latest(
                 - self.base.conf.installonly_limit)
             if instonly:
                 for pkg in instonly:
@@ -90,7 +92,7 @@ class RemoveCommand(commands.Command):
 
         # Remove groups.
         if self.opts.grp_specs:
-            self.base.read_comps()
+            self.base.read_comps(arch_filter=True)
             if self.base.env_group_remove(self.opts.grp_specs):
                 done = True
 

@@ -1,8 +1,9 @@
 %global hawkey_version 0.7.0
-%global librepo_version 1.7.16
-%global libcomps_version 0.1.6
+%global librepo_version 1.7.19
+%global libcomps_version 0.1.8
 %global rpm_version 4.13.0-0.rc1.29
 %global min_plugins_core 0.1.13
+%global dnf_langpacks_ver 0.15.1-6
 
 %global confdir %{_sysconfdir}/%{name}
 
@@ -24,7 +25,7 @@
 
 Name:           dnf
 Version:        2.0.0
-Release:        1%{?dist}
+Release:        0.rc1.1%{?dist}
 Summary:        Package manager forked from Yum, using libsolv as a dependency resolver
 # For a breakdown of the licensing, see PACKAGE-LICENSING
 License:        GPLv2+ and GPLv2 and GPL
@@ -70,12 +71,19 @@ Provides:       dnf-command(upgrade-to)
 Conflicts:      python2-dnf-plugins-core < %{min_plugins_core}
 Conflicts:      python3-dnf-plugins-core < %{min_plugins_core}
 
+# dnf-langpacks package is retired in F25
+# to have clean upgrade path for dnf-langpacks
+Obsoletes:      dnf-langpacks < %{dnf_langpacks_ver}
+
 %description
 Package manager forked from Yum, using libsolv as a dependency resolver.
 
 %package conf
 Summary:        Configuration files for DNF
 Requires:       libreport-filesystem
+# dnf-langpacks package is retired in F25
+# to have clean upgrade path for dnf-langpacks
+Obsoletes:      dnf-langpacks-conf < %{dnf_langpacks_ver}
 
 %description conf
 Configuration files for DNF.
@@ -119,6 +127,9 @@ Requires:       python2-pygpgme
 %endif
 Requires:       rpm-plugin-systemd-inhibit
 Requires:       rpm-python >= %{rpm_version}
+# dnf-langpacks package is retired in F25
+# to have clean upgrade path for dnf-langpacks
+Obsoletes:      python-dnf-langpacks < %{dnf_langpacks_ver}
 
 %description -n python2-%{name}
 Python 2 interface to DNF.
@@ -126,6 +137,7 @@ Python 2 interface to DNF.
 %if %{with python3}
 %package -n python3-%{name}
 Summary:        Python 3 interface to DNF.
+%{?system_python_abi}
 %{?python_provide:%python_provide python3-%{name}}
 BuildRequires:  python3-devel
 BuildRequires:  python3-hawkey >= %{hawkey_version}
@@ -145,6 +157,9 @@ Requires:       python3-librepo >= %{librepo_version}
 Requires:       python3-pygpgme
 Requires:       rpm-plugin-systemd-inhibit
 Requires:       rpm-python3 >= %{rpm_version}
+# dnf-langpacks package is retired in F25
+# to have clean upgrade path for dnf-langpacks
+Obsoletes:      python3-dnf-langpacks < %{dnf_langpacks_ver}
 
 %description -n python3-%{name}
 Python 3 interface to DNF.
@@ -201,6 +216,7 @@ mkdir -p %{buildroot}%{_localstatedir}/log/
 mkdir -p %{buildroot}%{_var}/cache/dnf/
 touch %{buildroot}%{_localstatedir}/log/%{name}.log
 %if %{with python3}
+%{?system_python_abi:sed -i 's|#!%{__python3}|#!%{_libexecdir}/system-python|' %{buildroot}%{_bindir}/dnf-3}
 ln -sr %{buildroot}%{_bindir}/dnf-3 %{buildroot}%{_bindir}/dnf
 mv %{buildroot}%{_bindir}/dnf-automatic-3 %{buildroot}%{_bindir}/dnf-automatic
 %else
@@ -208,9 +224,6 @@ ln -sr %{buildroot}%{_bindir}/dnf-2 %{buildroot}%{_bindir}/dnf
 mv %{buildroot}%{_bindir}/dnf-automatic-2 %{buildroot}%{_bindir}/dnf-automatic
 %endif
 rm -vf %{buildroot}%{_bindir}/dnf-automatic-*
-
-# This will eventually be the new default location for repo files
-mkdir %{buildroot}%{_sysconfdir}/distro.repos.d/
 
 %check
 pushd build
@@ -231,13 +244,6 @@ popd
 %postun
 %systemd_postun_with_restart dnf-makecache.timer
 
-%posttrans
-# cleanup pre-1.0.2 style cache
-for arch in %{ix86} x86_64 %{arm} aarch64 ppc %{sparc} %{alpha} s390 s390x %{power64} %{mips} ia64 ; do
-    rm -rf /var/cache/dnf/$arch
-done
-exit 0
-
 %post automatic
 %systemd_post dnf-automatic.timer
 
@@ -247,11 +253,9 @@ exit 0
 %postun automatic
 %systemd_postun_with_restart dnf-automatic.timer
 
-
 %files -f %{name}.lang
 %{_bindir}/%{name}
 %if 0%{?rhel} && 0%{?rhel} <= 7
-%dir %{_sysconfdir}/bash_completion.d
 %{_sysconfdir}/bash_completion.d/%{name}
 %else
 %dir %{_datadir}/bash-completion
@@ -263,7 +267,6 @@ exit 0
 %{_unitdir}/%{name}-makecache.service
 %{_unitdir}/%{name}-makecache.timer
 %{_var}/cache/%{name}/
-%ghost %{_sysconfdir}/distro.repos.d
 
 %files conf
 %license COPYING PACKAGE-LICENSING
@@ -319,6 +322,69 @@ exit 0
 %endif
 
 %changelog
+* Thu Sep 29 2016 Michal Luscon <mluscon@redhat.com> 2.0.0-0.rc1.1
+- See http://dnf.readthedocs.io/en/latest/release_notes.html
+
+* Thu Sep 08 2016 Igor Gnatenko <ignatenko@redhat.com> - 1.1.10-2
+- Obsolete dnf-langpacks
+- Backport patch for dnf repolist disabled
+
+* Thu Aug 18 2016 Igor Gnatenko <ignatenko@redhat.com> - 1.1.10-1
+- Update to 1.1.10
+
+* Tue Aug 09 2016 Igor Gnatenko <ignatenko@redhat.com> - 1.1.9-6
+- Fix typo
+
+* Tue Aug 09 2016 Igor Gnatenko <ignatenko@redhat.com> - 1.1.9-5
+- Also change shebang for %%{?system_python_abi} in %%{_bindir}/dnf
+
+* Tue Aug 09 2016 Igor Gnatenko <ignatenko@redhat.com> - 1.1.9-4
+- Add %%{?system_python_abi}
+
+* Tue Jul 19 2016 Fedora Release Engineering <rel-eng@lists.fedoraproject.org> - 1.1.9-3
+- https://fedoraproject.org/wiki/Changes/Automatic_Provides_for_Python_RPM_Packages
+
+* Tue May 24 2016 Michal Luscon <mluscon@redhat.com> 1.1.9-2
+- Revert "group: treat mandatory pkgs as mandatory if strict=true" (RhBug:1337731)
+- enforce-api: reflect changes from #992475 in completion_helper (RhBug:1338504)
+- enforce-api: add compatibility methods for renamed counterparts (RhBug:1338564)
+
+* Thu May 19 2016 Igor Gnatenko <ignatenko@redhat.com> 1.1.9-1
+- doc: release notes 1.1.9 (Igor Gnatenko)
+- spec: correctly set up requirements for python subpkg (Igor Gnatenko)
+- spec: follow new packaging guidelines & make compatible with el7 (Igor
+  Gnatenko)
+- zanata update (Jan Silhan)
+- enforce-api: add missing bits of Base class (Michal Luscon)
+- help: unify help msg strings (Michal Luscon)
+- enforce-api: decorate Base class (Michal Luscon)
+- util: add decorator informing users of nonapi functions (Michal Luscon)
+- Added description for 'autoremove' in dnf help (RhBug:1324086) (Abhijeet
+  Kasurde)
+- i18n: fixup for 0db13feed (Michal Luscon)
+- i18n: use fallback mode if terminal does not support UTF-8 (RhBug:1332012)
+  (Michal Luscon)
+- Revert "spec: follow new packaging guidelines & make compatible with el7"
+  (Michal Luscon)
+- move autoglob feature directly to filterm() and filter() (Michael Mraka)
+- group: treat mandatory pkgs as mandatory if strict=true (RhBug:1292892)
+  (Michal Luscon)
+- locks: fix lock paths in tmpfsd config since cachedir has been changed
+  (Michal Luscon)
+- remove formating from translation strings (Michal Luscon)
+- base: set diskspace check filter before applying the filters (RhBug:1328674)
+  (Michal Luscon)
+- order repos by priority and cost (Michael Mraka)
+- spec: follow new packaging guidelines & make compatible with el7 (Igor
+  Gnatenko)
+- bash-completion: first try to set fallback to BASH_COMPLETION_COMPATDIR (Igor
+  Gnatenko)
+- updated copyrights for files changed this year (Michael Mraka)
+- cli: fix warning from re.split() about non-empty pattern (RhBug:1286556)
+  (Igor Gnatenko)
+- update authors file (Michal Luscon)
+- Define __hash__ method for YumHistoryPackage (RhBug:1245121) (Max Prokhorov)
+
 * Tue Apr 05 2016 Michal Luscon <mluscon@redhat.com> 1.1.8-1
 - refactor: repo: add md_expired property (Michal Domonkos)
 - test: fix cachedir usage in LocalRepoTest (Michal Domonkos)

@@ -45,7 +45,7 @@ class DrpmTest(support.TestCase):
 
         # pretend it's remote and not cached
         self.addCleanup(mock.patch.stopall)
-        mock.patch.object(self.pkg.repo.__class__, 'local', False).start()
+        mock.patch.object(self.pkg.repo.__class__, '_local', False).start()
         self.pkg.localPkg = lambda: '/tmp/%s.rpm' % PACKAGE
         unlink_f(self.pkg.localPkg())
 
@@ -86,7 +86,9 @@ class DrpmTest(support.TestCase):
         # the testing drpm is about 150% of the target..
         self.pkg.repo.deltarpm = 1
         dnf.drpm.APPLYDELTA = '/bin/true'
-        with mock.patch('dnf.drpm.MAX_PERCENTAGE', 50):
-            self.assertEqual(self.download(), ['tour-5-1.noarch.rpm'])
-        with mock.patch('dnf.drpm.MAX_PERCENTAGE', 200):
-            self.assertEqual(self.download(), ['drpms/tour-5-1.noarch.drpm'])
+
+        self.base.conf.deltarpm_percentage = 50
+        self.assertEqual(self.download(), ['tour-5-1.noarch.rpm'])
+
+        self.base.conf.deltarpm_percentage = 200
+        self.assertEqual(self.download(), ['drpms/tour-5-1.noarch.drpm'])

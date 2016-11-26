@@ -176,13 +176,11 @@ class ListAppendOption(ListOption):
     """A list option which appends not sets values."""
 
     def _set(self, value, priority=PRIO_RUNTIME):
-        """Set option's value if priority is equal or higher
-           than curent priority."""
+        """Append option's value"""
+        new = self._make_value(value, priority)
         if self._is_default():
-            super(ListAppendOption, self)._set(value, priority)
+            self._actual = Value(self._default.value + new.value, priority)
         else:
-            # append
-            new = self._make_value(value, priority)
             self._actual = Value(self._actual.value + new.value, priority)
 
 
@@ -477,6 +475,14 @@ class ThrottleOption(BytesOption):
             return BytesOption._parse(self, s)
 
 
+class UnusedOption(Option):
+    """ Option recognized in other management tools, e.g. gnome-software,
+        but unused in dnf.
+    """
+    def __init__(self, default=None, parent=None, runtimeonly=False):
+        super(UnusedOption, self).__init__(None, None, False)
+
+
 class BaseConfig(object):
     """Base class for storing configuration definitions.
 
@@ -493,7 +499,7 @@ class BaseConfig(object):
         out = []
         out.append('[%s]' % self._section)
         for name, value in self._option.items():
-            out.append('%s: %s' % (name, value))
+            out.append('%s: %s' % (name, value._get()))
         return '\n'.join(out)
 
     def _add_option(self, name, optionobj):
@@ -514,22 +520,25 @@ class BaseConfig(object):
     def _set_value(self, name, value, priority=PRIO_RUNTIME):
         return self._option[name]._set(value, priority)
 
-    def _populate(self, parser, section, priority=PRIO_DEFAULT):
+    def _populate(self, parser, section, filename, priority=PRIO_DEFAULT):
         """Set option values from an INI file section."""
         if parser.has_section(section):
             for name in parser.options(section):
                 value = parser.get(section, name)
+                if not value or value == 'None':
+                    value = None
                 opt = self._get_option(name)
                 if opt and not opt._is_runtimeonly():
                     try:
                         opt._set(value, priority)
                     except dnf.exceptions.ConfigError as e:
-                        logger.warning(_('Unknown configuration value: '
-                                         '%s=%s; %s'),
-                                       ucd(name), ucd(value), e.raw_error)
+                        logger.debug(_('Unknown configuration value: '
+                                       '%s=%s in %s; %s'), ucd(name),
+                                     ucd(value), ucd(filename), e.raw_error)
                 else:
-                    logger.warning(_('Unknown configuration option: %s = %s'),
-                                   ucd(name), ucd(value))
+                    logger.debug(
+                        _('Unknown configuration option: %s = %s in %s'),
+                        ucd(name), ucd(value), ucd(filename))
 
     def _config_items(self):
         """Yield (name, value) pairs for every option in the instance."""
@@ -633,6 +642,7 @@ class MainConf(BaseConfig):
                          ListOption([dnf.const.PLUGINCONFPATH])) # :api
         self._add_option('persistdir', PathOption(dnf.const.PERSISTDIR)) # :api
         self._add_option('recent', IntOption(7, range_min=0))
+        self._add_option('retries', PositiveIntOption(10, names_of_0=["0"]))
         self._add_option('reset_nice', BoolOption(True))
 
         self._add_option('cachedir', PathOption(cachedir)) # :api
@@ -663,7 +673,8 @@ class MainConf(BaseConfig):
                                     "glob:/etc/dnf/protected.d/*.conf")) #:api
         self._add_option('username', Option()) # :api
         self._add_option('password', Option()) # :api
-        self._add_option('installonlypkgs', ListOption(dnf.const.INSTALLONLYPKGS))
+        self._add_option('installonlypkgs', ListAppendOption(dnf.const.INSTALLONLYPKGS))
+        self._add_option('group_package_types', ListOption(dnf.const.GROUP_PACKAGE_TYPES))
             # NOTE: If you set this to 2, then because it keeps the current
             # kernel it means if you ever install an "old" kernel it'll get rid
             # of the newest one so you probably want to use 3 as a minimum
@@ -675,6 +686,7 @@ class MainConf(BaseConfig):
 
         self._add_option('assumeyes', BoolOption(False)) # :api
         self._add_option('assumeno', BoolOption(False))
+        self._add_option('check_config_file_age', BoolOption(True))
         self._add_option('defaultyes', BoolOption(False))
         self._add_option('alwaysprompt', BoolOption(True))
         self._add_option('diskspacecheck', BoolOption(True))
@@ -685,6 +697,7 @@ class MainConf(BaseConfig):
         self._add_option('showdupesfromrepos', BoolOption(False))
         self._add_option('enabled', BoolOption(True))
         self._add_option('enablegroups', BoolOption(True))
+        self._add_option('exit_on_lock', BoolOption(False))
 
         self._add_option('bandwidth', BytesOption(0))
         self._add_option('minrate', BytesOption(1000))
@@ -736,6 +749,8 @@ class MainConf(BaseConfig):
         self._add_option('sslclientcert', Option()) # :api
         self._add_option('sslclientkey', Option()) # :api
         self._add_option('deltarpm', BoolOption(True))
+        self._add_option('deltarpm_percentage',
+                         PositiveIntOption(75, names_of_0=["0", "<off>"]))
 
         self._add_option('history_record', BoolOption(True))
         self._add_option('history_record_packages', ListOption(['dnf', 'rpm']))
@@ -749,6 +764,8 @@ class MainConf(BaseConfig):
                                                   'users', 'commands'),
                                          mapper={'cmds': 'commands',
                                                  'default': 'commands'}))
+        self._add_option('upgrade_group_objects_upgrade',
+                         BoolOption(True))  # :api
 
         # runtime only options
         self._add_option('downloadonly', BoolOption(False, runtimeonly=True))
@@ -855,7 +872,7 @@ class MainConf(BaseConfig):
             self._parser.readfp(config_pp)
         except ParsingError as e:
             raise dnf.exceptions.ConfigError("Parsing file failed: %s" % e)
-        self._populate(self._parser, self._section, priority)
+        self._populate(self._parser, self._section, filename, priority)
 
         # update to where we read the file from
         self._set_value('config_file_path', filename, priority)
@@ -876,6 +893,7 @@ class RepoConf(BaseConfig):
         self._add_option('baseurl', UrlListOption()) # :api
         self._add_option('mirrorlist', UrlOption()) # :api
         self._add_option('metalink', UrlOption()) # :api
+        self._add_option('type', Option())
         self._add_option('mediaid', Option())
         self._add_option('gpgkey', UrlListOption())
         self._add_option('excludepkgs', ListAppendOption())
@@ -902,6 +920,7 @@ class RepoConf(BaseConfig):
                          inherit(parent._get_option('repo_gpgcheck')))
         self._add_option('enablegroups',
                          inherit(parent._get_option('enablegroups')))
+        self._add_option('retries', inherit(parent._get_option('retries')))
 
         self._add_option('bandwidth', inherit(parent._get_option('bandwidth')))
         self._add_option('minrate', inherit(parent._get_option('minrate')))
@@ -925,8 +944,13 @@ class RepoConf(BaseConfig):
         self._add_option('sslclientkey',
                          inherit(parent._get_option('sslclientkey'))) # :api
         self._add_option('deltarpm', inherit(parent._get_option('deltarpm')))
+        self._add_option('deltarpm_percentage',
+                         inherit(parent._get_option('deltarpm_percentage')))
 
         self._add_option('skip_if_unavailable', BoolOption(True)) # :api
+
+        # options recognized by other tools, e.g. gnome-software, but unused in dnf
+        self._add_option('enabled_metadata', UnusedOption())
 
         # yum compatibility options
         self._add_option('failovermethod',
@@ -936,7 +960,7 @@ class RepoConf(BaseConfig):
     def _configure_from_options(self, opts):
         """Configure repos from the opts. """
 
-        if getattr(opts, 'nogpgcheck', None):
+        if getattr(opts, 'gpgcheck', None) is False:
             for optname in ['gpgcheck', 'repo_gpgcheck']:
                 opt = self._get_option(optname)
                 opt._set(False, dnf.conf.PRIO_COMMANDLINE)

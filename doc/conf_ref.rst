@@ -62,6 +62,13 @@ or :ref:`mirrorlist <mirrorlist-label>` option definition.
     satisfiable. Enable this if you want to experience broken dependencies in
     the repositories firsthand. The default is False.
 
+``check_config_file_age``
+    :ref:`boolean <boolean-label>`
+
+    Specifies whether dnf should automatically expire metadata of repos, which are older than
+    their corresponding configuration file (usually the dnf.conf file and the foo.repo file).
+    Default is ``True`` (perform the check).
+
 .. _clean_requirements_on_remove-label:
 
 ``clean_requirements_on_remove``
@@ -72,6 +79,11 @@ or :ref:`mirrorlist <mirrorlist-label>` option definition.
     installed through DNF but not on explicit user request, i.e. it was
     pulled in as a dependency. The default is True.
     (:ref:`installonlypkgs <installonlypkgs-label>` are never automatically removed.)
+
+``config_file_path``
+    :ref:`string <string-label>`
+
+    Path to the default main configuration file. Default is ``/etc/dnf/dnf.conf``.
 
 ``debuglevel``
     :ref:`integer <integer-label>`
@@ -91,7 +103,20 @@ or :ref:`mirrorlist <mirrorlist-label>` option definition.
     :ref:`integer <integer-label>`
 
     Error messages output level, in the range 0 to 10. The higher the number the
-    more error output is put to stderr. Default is 2. This is deprecated in DNF.
+    more error output is put to stderr. Default is 2. This is deprecated in DNF
+    and overwritten by \-\ :ref:`-verbose <verbose_options-label>` commandline
+    option.
+
+``exit_on_lock``
+    :ref:`boolean <boolean-label>`
+
+    Should the dnf client exit immediately when something else has the lock. Default is False
+
+``group_package_types``
+    :ref:`list <list-label>`
+
+    List of the following: optional, default, mandatory. Tells dnf which type of packages in groups will
+    be installed when 'groupinstall' is called. Default is: default, mandatory
 
 ``install_weak_deps``
     :ref:`boolean <boolean-label>`
@@ -111,8 +136,9 @@ or :ref:`mirrorlist <mirrorlist-label>` option definition.
     installed as dependencies (see
     :ref:`clean_requirements_on_remove <clean_requirements_on_remove-label>`
     for auto removal details).
-    This option overrides the default installonlypkgs list used by DNF.
-    The number of kept package versions is regulated by :ref:`installonly_limit <installonly-limit-label>`.
+    This option append the list values to the default installonlypkgs list used
+    by DNF. The number of kept package versions is regulated
+    by :ref:`installonly_limit <installonly-limit-label>`.
 
 .. _installonly-limit-label:
 
@@ -130,6 +156,11 @@ or :ref:`mirrorlist <mirrorlist-label>` option definition.
     Keeps downloaded packages in the cache when set to True. Even if it is set to False and packages have not been
     installed they will still persist until next successful transaction. The default
     is False.
+
+``logdir``
+    :ref:`string <string-label>`
+
+    Directory where the log files will be stored. Default is ``/var/log``.
 
 .. _metadata_timer_sync-label:
 
@@ -154,15 +185,6 @@ or :ref:`mirrorlist <mirrorlist-label>` option definition.
 
     List of directories that are searched for plugins to load. Plugins found in *any of the directories* in this configuration option are used. The default contains a Python version-specific path.
 
-.. _reposdir-label:
-
-``reposdir``
-    :ref:`list <list-label>`
-
-    DNF searches for repository configuration files in the paths specified by
-    ``reposdir``. The behavior of ``reposdir`` could differ when it is used
-    along with \-\ :ref:`-installroot <installroot-label>` option.
-
 ``protected_packages``
     :ref:`list <list-label>`
 
@@ -172,9 +194,36 @@ or :ref:`mirrorlist <mirrorlist-label>` option definition.
 
     DNF will protect also the package corresponding to the running version of the kernel.
 
+.. _reposdir-label:
+
+``reposdir``
+    :ref:`list <list-label>`
+
+    DNF searches for repository configuration files in the paths specified by
+    ``reposdir``. The behavior of ``reposdir`` could differ when it is used
+    along with \-\ :ref:`-installroot <installroot-label>` option.
+
+``rpmverbosity``
+    :ref:`string <string-label>`
+
+    RPM debug scriptlet output level. One of: ``critical``, ``emergency``,
+    ``error``, ``warn``, ``info`` or ``debug``. Default is ``info``.
+
+``upgrade_group_objects_upgrade``
+    :ref:`boolean <boolean-label>`
+
+    Set this to False to disable the automatic running of ``group upgrade`` when running the ``upgrade`` command. Default is True (perform the operation).
+
 ==============
  Repo Options
 ==============
+
+.. _baseurl-label:
+
+``baseurl``
+    :ref:`list <list-label>`
+
+    URLs for the repository.
 
 .. _repo_cost-label:
 
@@ -185,13 +234,6 @@ or :ref:`mirrorlist <mirrorlist-label>` option definition.
     value is compared when the priorities of two repositories are the same. The
     repository with *the lowest cost* is picked. It is useful to make the
     library prefer on-disk repositories to remote ones.
-
-.. _baseurl-label:
-
-``baseurl``
-    :ref:`list <list-label>`
-
-    URLs for the repository.
 
 ``enabled``
     :ref:`boolean <boolean-label>`
@@ -231,6 +273,13 @@ or :ref:`mirrorlist <mirrorlist-label>` option definition.
 
     The priority value of this repository, default is 99. If there is more than one candidate package for a particular operation, the one from a repo with *the lowest priority value* is picked, possibly despite being less convenient otherwise (e.g. by being a lower version).
 
+..  _retries-label:
+
+``retries``
+    :ref:`integer <integer-label>`
+
+    Overrides the retries option from the [main] section for this repository.
+
 .. _skip_if_unavailable-label:
 
 ``skip_if_unavailable``
@@ -245,15 +294,17 @@ or :ref:`mirrorlist <mirrorlist-label>` option definition.
 
     If disabled, all unavailable packages or packages with broken dependencies given to DNF command will be skipped without raising the error causing the whole operation to fail. Currently works for install command only. The default is True.
 
+``type``
+    :ref:`string <string-label>`
+
+    Type of repository metadata. Supported values are: ``rpm-md``.
+    Aliases for ``rpm-md``: ``rpm``, ``repomd``, ``rpmmd``, ``yum``, ``YUM``.
+
 ================
  Repo Variables
 ================
 
 Right side of every repo option can be enriched by the following variables:
-
-``$releasever``
-
-    Refers to the release version of operating system which DNF derives from information available in RPMDB.
 
 ``$arch``
 
@@ -263,6 +314,10 @@ Right side of every repo option can be enriched by the following variables:
 
     Refers to the base architecture of the system. For example, i686 and i586 machines
     both have a base architecture of i386, and AMD64 and Intel64 machines have a base architecture of x86_64.
+
+``$releasever``
+
+    Refers to the release version of operating system which DNF derives from information available in RPMDB.
 
 ==================================
  Options for both [main] and Repo
@@ -288,6 +343,13 @@ configuration.
     When enabled, DNF will save bandwidth by downloading much smaller delta RPM
     files, rebuilding them to RPM locally. However, this is quite CPU and I/O
     intensive. Default is True.
+
+``deltarpm_percentage``
+    :ref:`integer <integer-label>`
+
+    When the relative size of delta vs pkg is larger than this, delta is not used.  Default value is 75
+    (Deltas must be at least 25% smaller than the pkg).  Use `0' to turn off delta rpm processing. Local repositories (with
+    file:// baseurl) have delta rpms turned off by default.
 
 ``enablegroups``
     :ref:`boolean <boolean-label>`
@@ -376,6 +438,11 @@ configuration.
     :ref:`boolean <boolean-label>`
 
     Whether to perform GPG signature check on this repository's metadata. The default is False.
+
+``retries``
+    :ref:`integer <integer-label>`
+
+    Set the number of times any attempt to retrieve a file should retry before returning an error. Setting this to `0' makes dnf try forever. Default is `10'.
 
 .. _sslcacert-label:
 

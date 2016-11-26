@@ -1,8 +1,7 @@
-#!/bin/bash 
-# The yum executable redirecting to dnf from dnf-yum compatible package.
-# This is shell script and not python script to avoid python2/3 conflicts.
+# __init__.py
+# The legacy Yum subpackage.
 #
-# Copyright (C) 2015-2016 Red Hat, Inc.
+# Copyright (C) 2013-2016  Red Hat, Inc.
 #
 # This copyrighted material is made available to anyone wishing to use,
 # modify, copy, or redistribute it subject to the terms and conditions of
@@ -18,9 +17,3 @@
 # License and may only be used or replicated with the express permission of
 # Red Hat, Inc.
 #
-
-executable="/usr/bin/dnf"
-msg="Redirecting to '$executable $@' (see 'man yum2dnf')\n"
-
-echo -e $msg >&2
-exec $executable "$@"

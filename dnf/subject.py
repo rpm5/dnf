@@ -27,11 +27,12 @@ import dnf.selector
 import hawkey
 import re
 
+
 class Subject(object):
     # :api
 
     def __init__(self, pkg_spec, ignore_case=False):
-        self.subj = hawkey.Subject(pkg_spec) # internal subject
+        self.subj = hawkey.Subject(pkg_spec)  # internal subject
         self.icase = ignore_case
 
     def _nevra_to_filters(self, query, nevra):
@@ -49,23 +50,6 @@ class Subject(object):
 
         return query
 
-    @staticmethod
-    def _nevra_to_selector(sltr, nevra):
-        if nevra.name is not None:
-            sltr._set_autoglob(name=nevra.name)
-        if nevra.version is not None:
-            evr = nevra.version
-            if nevra.epoch is not None and nevra.epoch > 0:
-                evr = "%d:%s" % (nevra.epoch, evr)
-            if nevra.release is None:
-                sltr.set(version=evr)
-            else:
-                evr = "%s-%s" % (evr, nevra.release)
-                sltr.set(evr=evr)
-        if nevra.arch is not None:
-            sltr.set(arch=nevra.arch)
-        return sltr
-
     @property
     def _query_flags(self):
         flags = []
@@ -82,15 +66,26 @@ class Subject(object):
         return self.subj.pattern
 
     def _is_arch_specified(self, sack):
-        nevra = first(self.subj.nevra_possibilities_real(sack, allow_globs=True))
+        nevra = first(
+            self.subj.nevra_possibilities_real(sack, allow_globs=True))
         if nevra and nevra.arch:
             return is_glob_pattern(nevra.arch)
         return False
 
+    def _has_nevra_just_name(self, sack, forms=None):
+        kwargs = {'allow_globs': True,
+                  'icase': self.icase}
+        if forms is not None:
+            kwargs['form'] = forms
+        nevra = first(self.subj.nevra_possibilities_real(sack, **kwargs))
+        if nevra:
+            return nevra._has_just_name()
+        return False
+
     def get_best_query(self, sack, with_provides=True, forms=None):
         # :api
-        pat = self._pattern
 
+        pat = self._pattern
         kwargs = {'allow_globs': True,
                   'icase': self.icase}
         if forms:
@@ -102,12 +97,9 @@ class Subject(object):
                 return q
 
         if with_provides:
-            reldeps = self.subj.reldep_possibilities_real(sack, icase=self.icase)
-            reldep = first(reldeps)
-            if reldep:
-                q = sack.query().filter(provides=reldep)
-                if q:
-                    return q
+            q = sack.query()._filterm(provides__glob=self._pattern)
+            if q:
+                return q
 
         if self._filename_pattern:
             return sack.query().filter(file__glob=pat)
@@ -121,38 +113,37 @@ class Subject(object):
         if forms:
             kwargs['form'] = forms
         nevra = first(self.subj.nevra_possibilities_real(sack, **kwargs))
+        sltr = dnf.selector.Selector(sack)
         if nevra:
-            sltr = dnf.selector.Selector(sack)
-            s = self._nevra_to_selector(sltr, nevra)
-            if len(s.matches()) > 0:
-                return s
+            q = self._nevra_to_filters(sack.query(), nevra)
+            if q:
+                if nevra._has_just_name():
+                    q = q.union(sack.query().filter(obsoletes=q))
+                return sltr.set(pkg=q)
 
-        reldep = first(self.subj.reldep_possibilities_real(sack))
-        if reldep:
-            sltr = dnf.selector.Selector(sack)
-            dep = str(reldep)
-            s = sltr.set(provides=dep)
-            if len(s.matches()) > 0:
-                return s
+        q = sack.query()._filterm(provides__glob=self._pattern)
+        if q:
+            return sltr.set(pkg=q)
 
         if self._filename_pattern:
-            sltr = dnf.selector.Selector(sack)
-            key = "file__glob" if is_glob_pattern(self._pattern) else "file"
-            return sltr.set(**{key: self._pattern})
+            return sltr.set(pkg=sack.query()._filterm(file__glob=self._pattern))
 
-        sltr = dnf.selector.Selector(sack)
         return sltr
 
     def _get_best_selectors(self, sack, forms=None):
         if not self._filename_pattern and is_glob_pattern(self._pattern):
-            nevras = self.subj.nevra_possibilities_real(sack, allow_globs=True)
-            nevra = first(nevras)
-            if nevra and nevra.name:
-                sltrs = []
-                pkgs = self._nevra_to_filters(sack.query(), nevra)
-                for pkg_name in {pkg.name for pkg in pkgs}:
-                    exp_name = self._pattern.replace(nevra.name, pkg_name, 1)
-                    sltrs.append(Subject(exp_name).get_best_selector(sack, forms))
-                return sltrs
+            with_obsoletes = False
+            if self._has_nevra_just_name(sack, forms=forms):
+                with_obsoletes = True
+            q = self.get_best_query(sack, forms=forms)
+            sltrs = []
+            for name, pkgs_list in q._name_dict().items():
+                sltr = dnf.selector.Selector(sack)
+                if with_obsoletes:
+                    pkgs_list = pkgs_list + sack.query().filter(
+                        obsoletes=pkgs_list).run()
+                sltr.set(pkg=pkgs_list)
+                sltrs.append(sltr)
+            return sltrs
 
         return [self.get_best_selector(sack, forms)]

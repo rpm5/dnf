@@ -47,18 +47,20 @@ logger = logging.getLogger('dnf')
 def build_emitters(conf):
     emitters = dnf.util.MultiCallList([])
     system_name = conf.emitters.system_name
-    for name in conf.emitters.emit_via:
-        if name == 'email':
-            emitter = dnf.automatic.emitter.EmailEmitter(system_name, conf.email)
-            emitters.append(emitter)
-        elif name == 'stdio':
-            emitter = dnf.automatic.emitter.StdIoEmitter(system_name)
-            emitters.append(emitter)
-        elif name == 'motd':
-            emitter = dnf.automatic.emitter.MotdEmitter(system_name)
-            emitters.append(emitter)
-        else:
-            assert False
+    emit_via = conf.emitters.emit_via
+    if emit_via:
+        for name in emit_via:
+            if name == 'email':
+                emitter = dnf.automatic.emitter.EmailEmitter(system_name, conf.email)
+                emitters.append(emitter)
+            elif name == 'stdio':
+                emitter = dnf.automatic.emitter.StdIoEmitter(system_name)
+                emitters.append(emitter)
+            elif name == 'motd':
+                emitter = dnf.automatic.emitter.MotdEmitter(system_name)
+                emitters.append(emitter)
+            else:
+                raise dnf.exceptions.ConfigError("Unknowr emitter option: %s" % name)
     return emitters
 
 
@@ -78,6 +80,7 @@ class AutomaticConfig(object):
         self._parser = None
         self._load(filename)
         self.commands.imply()
+        self.filename = filename
 
     def _load(self, filename):
         parser = iniparse.compat.ConfigParser()
@@ -87,13 +90,13 @@ class AutomaticConfig(object):
         except iniparse.compat.ParsingError as e:
             raise dnf.exceptions.ConfigError("Parsing file failed: %s" % e)
 
-        self.commands._populate(parser, 'commands', dnf.conf.PRIO_AUTOMATICCONFIG)
-        self.email._populate(parser, 'email', dnf.conf.PRIO_AUTOMATICCONFIG)
-        self.emitters._populate(parser, 'emitters', dnf.conf.PRIO_AUTOMATICCONFIG)
+        self.commands._populate(parser, 'commands', filename, dnf.conf.PRIO_AUTOMATICCONFIG)
+        self.email._populate(parser, 'email', filename, dnf.conf.PRIO_AUTOMATICCONFIG)
+        self.emitters._populate(parser, 'emitters', filename, dnf.conf.PRIO_AUTOMATICCONFIG)
         self._parser = parser
 
     def update_baseconf(self, baseconf):
-        baseconf._populate(self._parser, 'base', dnf.conf.PRIO_AUTOMATICCONFIG)
+        baseconf._populate(self._parser, 'base', self.filename, dnf.conf.PRIO_AUTOMATICCONFIG)
 
 
 class CommandsConfig(dnf.conf.BaseConfig):
@@ -134,8 +137,9 @@ def main(args):
         conf = AutomaticConfig(opts.conf_path)
         with dnf.Base() as base:
             cli = dnf.cli.Cli(base)
-            cli.read_conf_file(conf.commands.base_config_file)
+            cli._read_conf_file()
             conf.update_baseconf(base.conf)
+            base.init_plugins(cli=cli)
             logger.debug('Started dnf-automatic.')
 
             if opts.timer:

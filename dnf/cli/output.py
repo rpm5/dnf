@@ -42,7 +42,6 @@ import operator
 import pwd
 import sys
 import time
-from dnf.cli.utils import normalize_time
 
 logger = logging.getLogger('dnf')
 
@@ -503,10 +502,11 @@ class Output(object):
             # print(_("Committer   : %s") % ucd(pkg.committer))
             # print(_("Committime  : %s") % time.ctime(pkg.committime))
             print_key_val(_("Packager"), pkg.packager)
-            print_key_val(_("Buildtime"), normalize_time(pkg.buildtime))
+            print_key_val(_("Buildtime"),
+                          dnf.util.normalize_time(pkg.buildtime))
             if pkg.installtime:
                 print_key_val(_("Install time"),
-                              normalize_time(pkg.installtime))
+                              dnf.util.normalize_time(pkg.installtime))
             if yumdb_info:
                 uid = None
                 if 'installed_by' in yumdb_info:
@@ -1032,10 +1032,10 @@ class Output(object):
             return a_wid
 
         for (action, pkglist) in [(_('Installing'), list_bunch.installed),
-                                  (_('Installing weak dependencies'), list_bunch.installed_weak),
-                                  (_('Installing dependencies'), list_bunch.installed_dep),
                                   (_('Upgrading'), list_bunch.upgraded),
                                   (_('Reinstalling'), list_bunch.reinstalled),
+                                  (_('Installing dependencies'), list_bunch.installed_dep),
+                                  (_('Installing weak dependencies'), list_bunch.installed_weak),
                                   (_('Removing'), list_bunch.erased),
                                   (_('Removing unused dependencies'), list_bunch.erased_clean),
                                   (_('Downgrading'), list_bunch.downgraded)]:
@@ -1063,7 +1063,12 @@ class Output(object):
             skipped_broken = self._skipped_broken_deps(skipped_conflicts)
             for pkg in sorted(skipped_broken):
                 a_wid = _add_line(lines, data, a_wid, pkg, [])
-            skip_str = _("Skipping packages with broken dependencies")
+            if self.base.conf.upgrade_group_objects_upgrade:
+                skip_str = _("Skipping packages with broken dependencies")
+            else:
+                skip_str = _("Skipping packages with broken dependencies"
+                             " or part of a group")
+
             pkglist_lines.append((skip_str, lines))
 
         if not data['n']:
@@ -1479,7 +1484,7 @@ Transaction Summary
                     lmark = '>'
                 print(fmt % (old.tid, name, tm, uiacts, num), "%s%s" % (lmark, rmark))
 
-    def historyInfoCmd(self, extcmds):
+    def historyInfoCmd(self, extcmds, pats=[]):
         """Output information about a transaction in history
 
         :param extcmds: list of extra command line arguments
@@ -1490,36 +1495,12 @@ Transaction Summary
             0 = we're done, exit
             1 = we've errored, exit with error string
         """
-        tids = set()
+        tids = extcmds
         mtids = set()
-        pats = []
         old = self.history.last()
         if old is None:
             logger.critical(_('No transactions'))
             return 1, ['Failed history info']
-
-        for tid in extcmds:
-            if self._historyRangeRTIDs(old, tid):
-                # Have a range ... do a "merged" transaction.
-                mtids.add(self._historyRangeRTIDs(old, tid))
-                continue
-
-            try:
-                id_or_offset = self.base.transaction_id_or_offset(tid)
-            except ValueError:
-                # A package pattern.
-                pats.append(tid)
-                continue
-
-            # A transaction ID or an offset from the last transaction ID.
-            tids.add(id_or_offset if id_or_offset >= 0 else
-                     old.tid + id_or_offset + 1)
-        if pats:
-            tids.update(self.history.search(pats))
-        utids = tids.copy()
-        if mtids:
-            mtids = sorted(mtids)
-            tids.update(self._historyRangeTIDs(mtids))
 
         if not tids and len(extcmds) < 2:
             old = self.history.last(complete_transactions_only=False)
@@ -1567,12 +1548,11 @@ Transaction Summary
                     if tid.tid >= bmtid and tid.tid <= emtid:
                         mobj = dnf.yum.history.YumMergedHistoryTransaction(tid)
 
-            if tid.tid in utids:
-                if done:
-                    print("-" * 79)
-                done = True
+            if done:
+                print("-" * 79)
+            done = True
 
-                self._historyInfoCmd(tid, pats)
+            self._historyInfoCmd(tid, pats)
 
         if mobj is not None:
             if done:
@@ -1952,7 +1932,7 @@ class CliKeyImport(dnf.callback.KeyImport):
         self.base = base
         self.output = output
 
-    def confirm(self, keyinfo):
+    def _confirm(self, keyinfo):
         dnf.crypto.log_key_import(keyinfo)
         if self.base.conf.assumeyes:
             return True
@@ -2029,8 +2009,7 @@ class CliTransactionDisplay(LoggingTransactionDisplay):
             msg = fmt % (fill_exact_width(process, wid1, wid1),
                          fill_exact_width(pkgname, wid2, wid2))
             if msg != self.lastmsg:
-                sys.stdout.write(msg)
-                sys.stdout.flush()
+                dnf.util._terminal_messenger('write_flush', msg, sys.stdout)
                 self.lastmsg = msg
             if ti_done == ti_total:
                 print(" ")
@@ -2044,8 +2023,7 @@ class CliTransactionDisplay(LoggingTransactionDisplay):
         :param msgs: the messages coming from the script
         """
         if msgs:
-            sys.stdout.write(ucd(msgs))
-            sys.stdout.flush()
+            dnf.util._terminal_messenger('write_flush', ucd(msgs), sys.stdout)
 
     def _makefmt(self, percent, ts_done, ts_total, progress=True,
                  pkgname=None, wid1=15):
@@ -2154,9 +2132,9 @@ def progressbar(current, total, name=None):
                                      hashbar, end)
 
     if current <= total:
-        sys.stdout.write(output)
+        dnf.util._terminal_messenger('write', output, sys.stdout)
 
     if current == total:
-        sys.stdout.write('\n')
+        dnf.util._terminal_messenger('write', '\n', sys.stdout)
 
-    sys.stdout.flush()
+    dnf.util._terminal_messenger('flush', out=sys.stdout)

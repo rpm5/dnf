@@ -89,7 +89,7 @@
 
   .. method:: do_transaction([display])
 
-    Perform the resolved transaction. Use the optional `display` object(s) to report the progress. `display` can be either an instance of a subclass of :class:`dnf.callback.TransactionProgress` or a sequence of such instances.
+    Perform the resolved transaction. Use the optional `display` object(s) to report the progress. `display` can be either an instance of a subclass of :class:`dnf.callback.TransactionProgress` or a sequence of such instances. Raise :exc:`dnf.exceptions.Error` or dnf.exceptions.TransactionCheckError.
 
   .. method:: download_packages(pkglist, progress=None)
 
@@ -111,9 +111,9 @@
 
     Read repository configuration from the main configuration file specified by :attr:`dnf.conf.Conf.config_file_path` and any ``.repo`` files under :attr:`dnf.conf.Conf.reposdir`. All the repositories found this way are added to :attr:`~.Base.repos`.
 
-  .. method:: read_comps()
+  .. method:: read_comps(arch_filter=False)
 
-    Read comps data from all the enabled repositories and initialize the :attr:`comps` object.
+    Read comps data from all the enabled repositories and initialize the :attr:`comps` object. If `arch_filter` is set to ``True``, the result is limited to system basearch.
 
   .. method:: reset(**kwargs)
 

@@ -25,16 +25,16 @@ from dnf.i18n import _, ucd, fill_exact_width, exact_width
 from dnf.cli.option_parser import OptionParser
 import dnf.cli.format
 import dnf.pycomp
+import dnf.util
 import fnmatch
 import logging
 import operator
-import time
 
 logger = logging.getLogger('dnf')
 
 
 def _expire_str(repo, md):
-    last = time.ctime(md.timestamp) if md else _("unknown")
+    last = dnf.util.normalize_time(md._timestamp) if md else _("unknown")
     if repo.metadata_expire <= -1:
         return _("Never (last: %s)") % last
     elif not repo.metadata_expire:
@@ -71,22 +71,22 @@ class RepoListCommand(commands.Command):
     repolist command.
     """
 
-    aliases = ('repolist',)
+    aliases = ('repolist', 'repoinfo')
     summary = _('display the configured software repositories')
 
     @staticmethod
     def set_argparser(parser):
         repolimit = parser.add_mutually_exclusive_group()
-        repolimit.add_argument('--all', dest='_repo_action',
+        repolimit.add_argument('--all', dest='_repos_action',
                                action='store_const', const='all', default=None,
                                help=_("show all repos"))
-        repolimit.add_argument('--enabled', dest='_repo_action',
+        repolimit.add_argument('--enabled', dest='_repos_action',
                                action='store_const', const='enabled',
                                help=_("show enabled repos (default)"))
-        repolimit.add_argument('--disabled', dest='_repo_action',
+        repolimit.add_argument('--disabled', dest='_repos_action',
                                action='store_const', const='disabled',
                                help=_("show disabled repos"))
-        parser.add_argument('repo', nargs='*', default='enabled',
+        parser.add_argument('repos', nargs='*', default='enabled',
                             choices=['all', 'enabled', 'disabled'],
                             action=OptionParser.PkgNarrowCallback)
 
@@ -95,18 +95,18 @@ class RepoListCommand(commands.Command):
         demands.available_repos = True
         demands.fresh_metadata = False
         demands.sack_activation = True
-        if self.opts._repo_action:
-            self.opts.repo_action = self.opts._repo_action
+        if self.opts._repos_action:
+            self.opts.repos_action = self.opts._repos_action
 
     def run(self):
-        arg = self.opts.repo_action
-        extcmds = [x.lower() for x in self.opts.repo]
+        arg = self.opts.repos_action
+        extcmds = [x.lower() for x in self.opts.repos]
 
         verbose = self.base.conf.verbose
 
         repos = list(self.base.repos.values())
         repos.sort(key=operator.attrgetter('id'))
-        enabled_repos = self.base.repos.enabled()
+        enabled_repos = list(self.base.repos.iter_enabled())
         term = self.output.term
         on_ehibeg = term.FG_COLOR['green'] + term.MODE['bold']
         on_dhibeg = term.FG_COLOR['red']
@@ -131,13 +131,13 @@ class RepoListCommand(commands.Command):
                     force_show = False
                 elif arg == 'disabled' and not force_show:
                     continue
-                if force_show or verbose:
+                if any((force_show, verbose, 'repoinfo' in self.opts.command)):
                     ui_enabled = ehibeg + _('enabled') + hiend
                     ui_endis_wid = exact_width(_('enabled'))
-                    if not verbose:
+                    if not any((verbose, 'repoinfo' in self.opts.command)):
                         ui_enabled += ": "
                         ui_endis_wid += 2
-                if verbose:
+                if verbose or ('repoinfo' in self.opts.command):
                     ui_size = _repo_size(self.base.sack, repo)
                 # We don't show status for list disabled
                 if arg != 'disabled' or verbose:
@@ -154,11 +154,11 @@ class RepoListCommand(commands.Command):
                 ui_enabled = dhibeg + _('disabled') + hiend
                 ui_endis_wid = exact_width(_('disabled'))
 
-            if not verbose:
+            if not any((verbose, ('repoinfo' in self.opts.command))):
                 rid = repo.id
                 if enabled and repo.metalink:
-                    mdts = repo.metadata.timestamp
-                    if mdts > repo.metadata.md_timestamp:
+                    mdts = repo.metadata._timestamp
+                    if mdts > repo.metadata._md_timestamp:
                         rid = '*' + rid
                 cols.append((rid, repo.name,
                              (ui_enabled, ui_endis_wid), ui_num))
@@ -173,24 +173,25 @@ class RepoListCommand(commands.Command):
                 if force_show or extcmds:
                     out += [self.output.fmtKeyValFill(_("Repo-status  : "),
                                                       ui_enabled)]
-                if md and md.revision is not None:
+                if md and md._revision is not None:
                     out += [self.output.fmtKeyValFill(_("Repo-revision: "),
-                                                      md.revision)]
-                if md and md.content_tags:
-                    tags = md.content_tags
+                                                      md._revision)]
+                if md and md._content_tags:
+                    tags = md._content_tags
                     out += [self.output.fmtKeyValFill(_("Repo-tags    : "),
                                                       ", ".join(sorted(tags)))]
 
-                if md and md.distro_tags:
-                    for (distro, tags) in md.distro_tags.items():
+                if md and md._distro_tags:
+                    for (distro, tags) in md._distro_tags.items():
                         out += [self.output.fmtKeyValFill(
                             _("Repo-distro-tags: "),
                             "[%s]: %s" % (distro, ", ".join(sorted(tags))))]
 
                 if md:
                     out += [
-                        self.output.fmtKeyValFill(_("Repo-updated : "),
-                                                  time.ctime(md.md_timestamp)),
+                        self.output.fmtKeyValFill(
+                            _("Repo-updated : "),
+                            dnf.util.normalize_time(md._md_timestamp)),
                         self.output.fmtKeyValFill(_("Repo-pkgs    : "), ui_num),
                         self.output.fmtKeyValFill(_("Repo-size    : "), ui_size)]
 
@@ -198,9 +199,9 @@ class RepoListCommand(commands.Command):
                     out += [self.output.fmtKeyValFill(_("Repo-metalink: "),
                                                       repo.metalink)]
                     if enabled:
-                        ts = repo.metadata.timestamp
-                        out += [self.output.fmtKeyValFill(_("  Updated    : "),
-                                                          time.ctime(ts))]
+                        ts = repo.metadata._timestamp
+                        out += [self.output.fmtKeyValFill(
+                            _("  Updated    : "), dnf.util.normalize_time(ts))]
                 elif repo.mirrorlist:
                     out += [self.output.fmtKeyValFill(_("Repo-mirrors : "),
                                                       repo.mirrorlist)]
@@ -208,8 +209,8 @@ class RepoListCommand(commands.Command):
                 if baseurls:
                     out += [self.output.fmtKeyValFill(_("Repo-baseurl : "),
                                                       ", ".join(baseurls))]
-                elif enabled and md.mirrors:
-                    url = "%s (%d more)" % (md.mirrors[0], len(md.mirrors) - 1)
+                elif enabled and md._mirrors:
+                    url = "%s (%d more)" % (md._mirrors[0], len(md._mirrors) - 1)
                     out += [self.output.fmtKeyValFill(_("Repo-baseurl : "), url)]
 
                 expire = _expire_str(repo, md)
@@ -231,7 +232,7 @@ class RepoListCommand(commands.Command):
                     out += [self.output.fmtKeyValFill(_("Repo-filename: "),
                                                       repo.repofile)]
 
-                logger.log(dnf.logging.DEBUG, "%s\n", "\n".join(map(ucd, out)))
+                print("\n" + "\n".join(map(ucd, out)))
 
         if not verbose and cols:
             #  Work out the first (id) and last (enabled/disalbed/count),
@@ -274,7 +275,7 @@ class RepoListCommand(commands.Command):
             for (rid, rname, (ui_enabled, ui_endis_wid), ui_num) in cols:
                 if arg == 'disabled': # Don't output a status column.
                     print("%s %s" % (fill_exact_width(rid, id_len),
-                                     fill_exact_width(rname, nm_len, -nm_len)))
+                                     fill_exact_width(rname, nm_len, nm_len)))
                     continue
 
                 if ui_num:

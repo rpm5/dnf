@@ -32,6 +32,7 @@ import collections
 import dnf
 import dnf.cli.commands
 import dnf.cli.commands.autoremove
+import dnf.cli.commands.check
 import dnf.cli.commands.clean
 import dnf.cli.commands.distrosync
 import dnf.cli.commands.downgrade
@@ -46,6 +47,7 @@ import dnf.cli.commands.repoquery
 import dnf.cli.commands.search
 import dnf.cli.commands.updateinfo
 import dnf.cli.commands.upgrade
+import dnf.cli.commands.upgrademinimal
 import dnf.cli.commands.upgradeto
 import dnf.cli.demand
 import dnf.cli.option_parser
@@ -221,6 +223,9 @@ class BaseCli(dnf.Base):
         if trans:
             msg = self.output.post_transaction_output(trans)
             logger.info(msg)
+            for tsi in trans:
+                if tsi.op_type == dnf.transaction.FAIL:
+                    raise dnf.exceptions.Error(_('Transaction failed'))
 
     def gpgsigcheck(self, pkgs):
         """Perform GPG signature verification on the given packages,
@@ -549,50 +554,12 @@ class BaseCli(dnf.Base):
         # otherwise, don't prompt
         return False
 
-    @staticmethod
-    def transaction_id_or_offset(extcmd):
-        """Convert user input to a transaction ID or an offset from the end."""
-        try:
-            offset_str, = re.match('^--last(-\d+)?$', extcmd).groups()
-        except AttributeError:  # extcmd does not match the regex.
-            id_ = int(extcmd)
-            if id_ < 0:
-                # Negative return values are reserved for offsets.
-                raise ValueError('bad transaction ID given: %s' % extcmd)
-            return id_
-        else:
-            # Was extcmd '--last-N' or just '--last'?
-            offset = int(offset_str) if offset_str else 0
-            # Return offsets as negative numbers, where -1 means the last
-            # transaction as when indexing sequences.
-            return offset - 1
-
     def _history_get_transactions(self, extcmds):
         if not extcmds:
             logger.critical(_('No transaction ID given'))
             return None
 
-        tids = []
-        last = None
-        for extcmd in extcmds:
-            try:
-                id_or_offset = self.transaction_id_or_offset(extcmd)
-            except ValueError:
-                logger.critical(_('Bad transaction ID given'))
-                return None
-
-            if id_or_offset < 0:
-                if last is None:
-                    cto = False
-                    last = self.history.last(complete_transactions_only=cto)
-                    if last is None:
-                        logger.critical(_('Bad transaction ID given'))
-                        return None
-                tids.append(str(last.tid + id_or_offset + 1))
-            else:
-                tids.append(str(id_or_offset))
-
-        old = self.history.old(tids)
+        old = self.history.old(extcmds)
         if not old:
             logger.critical(_('Not found given transaction ID'))
             return None
@@ -629,7 +596,7 @@ class BaseCli(dnf.Base):
             else:
                 mobj.merge(tid)
 
-        tm = time.ctime(old.beg_timestamp)
+        tm = dnf.util.normalize_time(old.beg_timestamp)
         print("Rollback to transaction %u, from %s" % (old.tid, tm))
         print(self.output.fmtKeyValFill("  Undoing the following transactions: ",
                                       ", ".join((str(x) for x in mobj.tid))))
@@ -661,7 +628,7 @@ class BaseCli(dnf.Base):
         if old is None:
             return 1, ['Failed history undo']
 
-        tm = time.ctime(old.beg_timestamp)
+        tm = dnf.util.normalize_time(old.beg_timestamp)
         print("Undoing transaction %u, from %s" % (old.tid, tm))
         self.output.historyInfoCmdPkgsAltered(old)  # :todo
 
@@ -690,6 +657,7 @@ class Cli(object):
         self.demands = dnf.cli.demand.DemandSheet() #:cli
 
         self.register_command(dnf.cli.commands.autoremove.AutoremoveCommand)
+        self.register_command(dnf.cli.commands.check.CheckCommand)
         self.register_command(dnf.cli.commands.clean.CleanCommand)
         self.register_command(dnf.cli.commands.distrosync.DistroSyncCommand)
         self.register_command(dnf.cli.commands.downgrade.DowngradeCommand)
@@ -704,6 +672,7 @@ class Cli(object):
         self.register_command(dnf.cli.commands.search.SearchCommand)
         self.register_command(dnf.cli.commands.updateinfo.UpdateInfoCommand)
         self.register_command(dnf.cli.commands.upgrade.UpgradeCommand)
+        self.register_command(dnf.cli.commands.upgrademinimal.UpgradeMinimalCommand)
         self.register_command(dnf.cli.commands.upgradeto.UpgradeToCommand)
         self.register_command(dnf.cli.commands.InfoCommand)
         self.register_command(dnf.cli.commands.ListCommand)
@@ -753,13 +722,13 @@ class Cli(object):
         for rid in self.base._repo_persistor.get_expired_repos():
             repo = self.base.repos.get(rid)
             if repo:
-                repo.md_expire_cache()
+                repo._md_expire_cache()
 
         # setup the progress bars/callbacks
         (bar, self.base._ds_callback) = self.base.output.setup_progress_callbacks()
         self.base.repos.all().set_progress_bar(bar)
         key_import = output.CliKeyImport(self.base, self.base.output)
-        self.base.repos.all().set_key_import(key_import)
+        self.base.repos.all()._set_key_import(key_import)
 
     def _log_essentials(self):
         logger.debug('DNF version: %s', dnf.const.VERSION)
@@ -778,10 +747,10 @@ class Cli(object):
         if not demands.cacheonly:
             if demands.freshest_metadata:
                 for repo in repos.iter_enabled():
-                    repo.md_expire_cache()
+                    repo._md_expire_cache()
             elif not demands.fresh_metadata:
                 for repo in repos.values():
-                    repo.md_lazy = True
+                    repo._md_lazy = True
 
         if demands.sack_activation:
             self.base.fill_sack(load_system_repo='auto',
@@ -807,13 +776,15 @@ class Cli(object):
         logger.log(dnf.logging.DDEBUG, 'Base command: %s', basecmd)
         logger.log(dnf.logging.DDEBUG, 'Extra commands: %s', args)
 
-    def configure(self, args):
+    def configure(self, args, option_parser=None):
         """Parse command line arguments, and set up :attr:`self.base.conf` and
         :attr:`self.cmds`, as well as logger objects in base instance.
 
         :param args: a list of command line arguments
+        :param option_parser: a class for parsing cli options
         """
-        self.optparser = dnf.cli.option_parser.OptionParser()
+        self.optparser = dnf.cli.option_parser.OptionParser() \
+            if option_parser is None else option_parser
         opts = self.optparser.parse_main_args(args)
 
         # Just print out the version if that's what the user wanted
@@ -831,7 +802,7 @@ class Cli(object):
         # Read up configuration options and initialize plugins
         try:
             self.base.conf._configure_from_options(opts)
-            self.read_conf_file(opts.releasever)
+            self._read_conf_file(opts.releasever)
         except (dnf.exceptions.ConfigError, ValueError) as e:
             logger.critical(_('Config error: %s'), e)
             sys.exit(1)
@@ -896,7 +867,7 @@ class Cli(object):
         if self.base.conf.color != 'auto':
             self.base.output.term.reinit(color=self.base.conf.color)
 
-    def read_conf_file(self, releasever=None):
+    def _read_conf_file(self, releasever=None):
         timer = dnf.logging.Timer('config')
         conf = self.base.conf
 
@@ -923,6 +894,32 @@ class Cli(object):
 
         timer()
         return conf
+
+    def _populate_update_security_filter(self, opts, minimal=None, all=None):
+        if (opts is None) and (all is None):
+            return
+        q = self.base.sack.query().upgrades()
+        filters = []
+        if opts.bugfix or all:
+            filters.append(q.filter(advisory_type='bugfix'))
+        if opts.enhancement or all:
+            filters.append(q.filter(advisory_type='enhancement'))
+        if opts.newpackage or all:
+            filters.append(q.filter(advisory_type='newpackage'))
+        if opts.security or all:
+            filters.append(q.filter(advisory_type='security'))
+        if opts.advisory:
+            filters.append(q.filter(advisory=opts.advisory))
+        if opts.bugzilla:
+            filters.append(q.filter(advisory_bug=opts.bugzilla))
+        if opts.cves:
+            filters.append(q.filter(advisory_cve=opts.cves))
+        if opts.severity:
+            filters.append(q.filter(advisory_severity=opts.severity))
+        if len(filters):
+            key = 'upgrade' if minimal is None else 'minimal'
+            self.base._update_security_filters[key] = filters
+
 
     def register_command(self, command_cls):
         """Register a Command. :api"""

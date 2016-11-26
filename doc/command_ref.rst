@@ -44,6 +44,7 @@ dependencies of packages that require a particular DNF command).
 Available commands:
 
 * :ref:`autoremove <autoremove_command-label>`
+* :ref:`check <check_command-label>`
 * :ref:`check-update <check_update_command-label>`
 * :ref:`clean <clean_command-label>`
 * :ref:`distro-sync <distro_sync_command-label>`
@@ -59,12 +60,14 @@ Available commands:
 * :ref:`provides <provides_command-label>`
 * :ref:`reinstall <reinstall_command-label>`
 * :ref:`remove <remove_command-label>`
+* :ref:`repoinfo <repoinfo_command-label>`
 * :ref:`repolist <repolist_command-label>`
 * :ref:`repoquery <repoquery_command-label>`
 * :ref:`repository-packages <repository-packages_command-label>`
 * :ref:`search <search_command-label>`
 * :ref:`updateinfo <updateinfo_command-label>`
 * :ref:`upgrade <upgrade_command-label>`
+* :ref:`upgrade-minimal <upgrade_minimal_command-label>`
 * :ref:`upgrade-to <upgrade_to_command-label>`
 
 Additional informations:
@@ -92,6 +95,10 @@ Options
 ``-6``
     Resolve to IPv6 addresses only.
 
+``--advisory=<advisory>, --advisories=<advisory>``
+    Includes packages corresponding to the advisory ID, Eg. FEDORA-2201-123.
+    Applicable for upgrade command.
+
 ``--allowerasing``
     Allow erasing of installed packages to resolve dependencies. This option could be used as an alternative to ``yum swap`` command where packages to remove are not explicitly defined.
 
@@ -101,6 +108,13 @@ Options
 ``-b, --best``
     Try the best available package versions in transactions. Specifically during :ref:`dnf upgrade <upgrade_command-label>`, which by default skips over updates that can not be installed for dependency reasons, the switch forces DNF to only consider the latest packages. When running into packages with broken dependencies, DNF will fail giving a reason why the latest version can not be installed.
 
+``--bugfix``
+    Includes packages that fix a bugfix issue. Applicable for upgrade command.
+
+``--bz=<bugzilla>``
+    Includes packages that fix a Bugzilla ID, Eg. 123123. Applicable for upgrade
+    command.
+
 ``-C, --cacheonly``
     Run entirely from system cache, don't update the cache and use it even in case it is expired.
 
@@ -108,6 +122,11 @@ Options
 
 ``-c <config file>, --config=<config file>``
     config file location
+
+``--cve=<cves>``
+    Includes packages that fix a CVE (Common Vulnerabilities and Exposures) ID
+    (http://cve.mitre.org/about/), Eg. CVE-2201-0123. Applicable for upgrade
+    command.
 
 ``-d <debug level>, --debuglevel=<debug level>``
     Debugging output level. This is an integer value between 0 (no additional information strings) and 10 (shows all debugging information, even that not understandable to the user), default is 2. Deprecated, use ``-v`` instead.
@@ -142,6 +161,9 @@ Options
 
 ``--enablerepo=<repoid>``
     Enable additional repositories by an id or a glob.
+
+``--enhancement``
+    Include enhancement relevant packages. Applicable for upgrade command.
 
 ``-x <package-spec>, --exclude=<package-spec>``
     Exclude packages specified by ``<package-spec>`` from the operation.
@@ -186,6 +208,9 @@ Options
      Upgrade packages inside of installroot from repository described by
      ``--setopt`` using configuration from ``/path/dnf.conf``
 
+``--newpackage``
+    Include newpackage relevant packages. Applicable for upgrade command.
+
 ``--nogpgcheck``
     skip checking GPG signatures on packages
 
@@ -224,14 +249,25 @@ Options
     ``--disablerepo="*" --enablerepo=<repoid>`` and is mutually exclusive with
     ``--disablerepo`` option.
 
-``--rpmverbosity=<debug level name>``
-    debugging output level for rpm
+``--rpmverbosity=<name>``
+    RPM debug scriptlet output level. Sets the debug level to ``<name>`` for RPM scriptlets.
+    For available levels, see ``rpmverbosity`` configuration option.
+
+``--sec-severity=<severity>, --secseverity=<severity>``
+    Includes packages that provides a fix for issue of the specified severity.
+    Applicable for upgrade command.
+
+``--security``
+    Includes packages that provides a fix for security issue. Applicable for
+    upgrade command.
 
 ``--setopt=<option>=<value>``
     override a config option from the config file. To override config options from repo files, use ``repoid.option`` for the ``<option>``.
 
 ``--showduplicates``
     show duplicates, in repos, in list/search commands
+
+.. _verbose_options-label:
 
 ``-v, --verbose``
     verbose operation, show debug messages.
@@ -274,6 +310,19 @@ Packages listed in :ref:`installonlypkgs <installonlypkgs-label>` are never auto
 this command.
 
 This command by default does not force a sync of expired metadata. See also :ref:`\metadata_synchronization-label`.
+
+.. _check_command-label:
+
+--------------------
+Check Command
+--------------------
+
+``dnf [options] check [--dependencies] [--duplicates] [--obsoleted] [--provides]``
+
+    Checks the local packagedb and produces information on any problems it
+    finds. You can pass the check command the options "--dependencies",
+    "--duplicates", "--obsoleted" or "--provides", to limit the checking that is
+    performed (the default is "all" which does all).
 
 .. _check_update_command-label:
 
@@ -451,7 +500,7 @@ transactions and act according to this information (assuming the
 ``dnf history userinstalled``
     List names of all packages installed by a user. The output can be used as
     the %packages section in a `kickstart <http://fedoraproject.org/wiki/
-    Anaconda/Kickstart>`_ file.
+    Anaconda/Kickstart>`_ file. It will show all installonly packages, packages installed outside of DNF and packages not installed as dependency. I.e. it lists packages that will stay on the system when :ref:`\autoremove_command-label` or :ref:`\remove_command-label` along with `clean_requirements_on_remove` configuration option set to True is executed.
 
 This command by default does not force a sync of expired metadata.
 See also :ref:`\metadata_synchronization-label`
@@ -634,11 +683,20 @@ Remove Command
 ``dnf [options] remove <package-specs>...``
     Removes the specified packages from the system along with any packages depending on the packages being removed. Each ``<spec>`` can be either a ``<package-spec>``, which specifies a package directly, or a ``@<group-spec>``, which specifies an (environment) group which contains it. If ``clean_requirements_on_remove`` is enabled (the default) also removes any dependencies that are no longer needed.
 
-``dnf [options] remove --duplicated``
+``dnf [options] remove --duplicates``
     Removes older version of duplicated packages.
 
 ``dnf [options] remove --oldinstallonly``
     Removes old installonly packages keeping only ``installonly_limit`` latest versions.
+
+.. _repoinfo_command-label:
+
+----------------
+Repoinfo Command
+----------------
+
+    This command is alias for :ref:`repolist <repolist_command-label>` command
+    that provides more detailed information like ``dnf repolist -v``.
 
 .. _repolist_command-label:
 
@@ -679,7 +737,7 @@ resulting packages matching the specification. All packages are considered if no
 ``--arch <arch>[,<arch>...]``
     Limit the resulting set only to packages of selected architectures.
 
-``--duplicated``
+``--duplicates``
     Limit the resulting set to installed duplicated packages (i.e. more package versions
     for the same name and architecture). Installonly packages are excluded from this set.
 
@@ -803,6 +861,11 @@ are displayed in the standard NEVRA notation.
     ``--whatrequires``, ``--requires``, ``--conflicts``, ``--enhances``, ``--suggests``, ``--provides``,
     ``--suplements``, ``--recommends``.
 
+``--deplist``
+    Produces a list of all dependencies and what packages provide those
+    dependencies for the given packages. The results only shows the newest
+    providers (which can be changed by using --verbose)
+
 .. _queryformat_repoquery-label:
 
 ``--qf <format>``, ``--queryformat <format>``
@@ -852,11 +915,11 @@ Display all available packages providing "webserver" but only for "i686" archite
 
 Display duplicated packages::
 
-    dnf repoquery --duplicated
+    dnf repoquery --duplicates
 
 Remove older versions of duplicated packages (an equivalent of yum's `package-cleanup --cleandups`)::
 
-    dnf remove $(dnf repoquery --duplicated --latest-limit -1 -q)
+    dnf remove $(dnf repoquery --duplicates --latest-limit -1 -q)
 
 
 .. _repository-packages_command-label:
@@ -1007,6 +1070,21 @@ Upgrade Command
 
 See also :ref:`\configuration_files_replacement_policy-label`.
 
+.. _upgrade_minimal_command-label:
+
+-----------------------
+Upgrade-minimal Command
+-----------------------
+
+``dnf [options] upgrade-minimal``
+    Updates each package to the latest version that provides bugfix, enhancement
+    or fix for security issue (security)
+
+``dnf [options] upgrade-minimal <package-installed-specs>...``
+    Updates each specified package to the latest available version that provides
+    bugfix, enhancement or fix for security issue (security). Updates
+    dependencies as necessary.
+
 -----------------
 Update-To Command
 -----------------
@@ -1100,8 +1178,8 @@ Specifying Transactions
 =======================
 
 ``<transaction-spec>`` can be in one of several forms. If it is an integer, it
-specifies a transaction ID. Specifying ``--last`` is the same as specifying the ID
-of the most recent transaction. The last form is ``--last-<offset>``, where
+specifies a transaction ID. Specifying ``last`` is the same as specifying the ID
+of the most recent transaction. The last form is ``last-<offset>``, where
 ``<offset>`` is a positive integer. It specifies offset-th transaction preceding
 the most recent transaction.
 
