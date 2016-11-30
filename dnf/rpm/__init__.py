@@ -45,6 +45,17 @@ def detect_releasever(installroot):
             msg = 'Error: rpmdb failed to list provides. Try: rpm --rebuilddb'
             raise dnf.exceptions.Error(msg)
         releasever = hdr['version']
+        try:
+            off = hdr[rpm.RPMTAG_PROVIDENAME].index(distroverpkg)
+            flag = hdr[rpm.RPMTAG_PROVIDEFLAGS][off]
+            ver = hdr[rpm.RPMTAG_PROVIDEVERSION][off]
+            if flag == rpm.RPMSENSE_EQUAL and ver:
+                if hdr['name'] != distroverpkg:
+                    # override the package version
+                    releasever = ver
+        except (ValueError, KeyError, IndexError):
+            pass
+
         if is_py3bytes(releasever):
             releasever = str(releasever, "utf-8")
         return releasever
@@ -67,7 +78,7 @@ _BASEARCH_MAP = _invert({
     'alpha': ('alpha', 'alphaev4', 'alphaev45', 'alphaev5', 'alphaev56',
               'alphaev6', 'alphaev67', 'alphaev68', 'alphaev7', 'alphapca56'),
     'arm': ('armv5tejl', 'armv5tel', 'armv6l', 'armv7l'),
-    'armhfp': ('armv6hl', 'armv7hl', 'armv7hnl'),
+    'armhfp': ('armv6hl', 'armv7hl', 'armv7hnl', 'armv8l'),
     'i386': ('i386', 'athlon', 'geode', 'i386', 'i486', 'i586', 'i686'),
     'ia64': ('ia64',),
     'mips': ('mips',),

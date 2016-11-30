@@ -46,7 +46,8 @@ class UpdateInfoCommand(commands.Command):
     TYPE2LABEL = {hawkey.ADVISORY_BUGFIX: _('bugfix'),
                   hawkey.ADVISORY_ENHANCEMENT: _('enhancement'),
                   hawkey.ADVISORY_SECURITY: _('security'),
-                  hawkey.ADVISORY_UNKNOWN: _('unknown')}
+                  hawkey.ADVISORY_UNKNOWN: _('unknown'),
+                  hawkey.ADVISORY_NEWPACKAGE: _('newpackage')}
 
     aliases = ['updateinfo']
     summary = _('display advisories about packages')
@@ -75,6 +76,9 @@ class UpdateInfoCommand(commands.Command):
             ievr = self._ina2evr_cache[(apackage.name, apackage.arch)]
         except KeyError:
             return False
+        q = self.base.sack.query().filter(name=apackage.name, evr=apackage.evr)
+        if len(self.base._merge_update_filters(q, warning=False)) == 0:
+            return False
         return self.base.sack.evr_cmp(ievr, apackage.evr) < 0
 
     def _newer_equal_installed(self, apkg):
@@ -86,6 +90,9 @@ class UpdateInfoCommand(commands.Command):
             ievr = self._ina2evr_cache[(apkg.name, apkg.arch)]
         except KeyError:
             return False
+        q = self.base.sack.query().filter(name=apkg.name, evr=apkg.evr)
+        if len(self.base._merge_update_filters(q, warning=False)) == 0:
+            return False
         return self.base.sack.evr_cmp(ievr, apkg.evr) >= 0
 
     def _any_installed(self, apkg):
@@ -93,6 +100,9 @@ class UpdateInfoCommand(commands.Command):
         # Non-cached lookup not implemented. Fill the cache or implement the
         # functionality via the slow sack query.
         assert self._ina2evr_cache is not None
+        q = self.base.sack.query().filter(name=apkg.name, evr=apkg.evr)
+        if len(self.base._merge_update_filters(q, warning=False)) == 0:
+            return False
         return (apkg.name, apkg.arch) in self._ina2evr_cache
 
     @staticmethod
@@ -122,6 +132,8 @@ class UpdateInfoCommand(commands.Command):
             types.add(hawkey.ADVISORY_ENHANCEMENT)
         if {'security', 'sec'} & specs:
             types.add(hawkey.ADVISORY_SECURITY)
+        if 'newpackage' in specs:
+            types.add(hawkey.ADVISORY_NEWPACKAGE)
 
         return (any(fnmatch.fnmatchcase(advisory.id, pat) for pat in specs) or
                 advisory.type in types or
@@ -184,6 +196,7 @@ class UpdateInfoCommand(commands.Command):
         print(_('Updates Information Summary: ') + description)
         # Convert types to strings and order the entries.
         label_counts = [
+            (_('New Package notice(s)'), typ2cnt[hawkey.ADVISORY_NEWPACKAGE]),
             (_('Security notice(s)'), typ2cnt[hawkey.ADVISORY_SECURITY]),
             (_('Bugfix notice(s)'), typ2cnt[hawkey.ADVISORY_BUGFIX]),
             (_('Enhancement notice(s)'), typ2cnt[hawkey.ADVISORY_ENHANCEMENT]),
@@ -318,14 +331,9 @@ class UpdateInfoCommand(commands.Command):
 
     def run(self):
         """Execute the command with arguments."""
+        self.cli._populate_update_security_filter(self.opts, minimal=True)
 
         args = self.opts.spec
-        if self.opts.bugfix:
-            args.append("bugfix")
-        if self.opts.enhancement:
-            args.append("enhancement")
-        if self.opts.security:
-            args.append("security")
         display = self.display_summary
         if self.opts.spec_action == 'list':
             display = self.display_list
